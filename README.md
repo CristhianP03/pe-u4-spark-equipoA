@@ -50,10 +50,10 @@ determinista (semilla fija `42`) por `src/generar_dataset_acc.py`:
 - Regenerable: `python src/generar_dataset_acc.py --sobrescribir`.
 - Metadatos y tipos: `data/README_dataset.md`.
 
-> `data/raw/` **no se versiona** (regenerable, 75,8 MB); tampoco las salidas
-> `data/pandas/` y `data/spark/` (se regeneran con el pipeline). En el
-> repositorio solo se conservan sus `.gitkeep` para mantener la estructura del
-> proyecto.
+> `data/raw/` **no se versiona** (regenerable, 75,8 MB). En cambio, las **10
+> salidas del pipeline** `data/pandas/*.csv` y `data/spark/*.csv` **sí se
+> versionan** como evidencia de los criterios 1.2/1.3/1.4 (generadas por el
+> notebook ejecutado en Colab).
 
 ### Límite de tamaño y decisión de versionado (criterio 1.1)
 
@@ -115,8 +115,8 @@ Soporte-Tecnico-ACC/
 ├── data/
 │   ├── README_dataset.md              # metadatos del dataset (criterio 1.1)
 │   ├── raw/                           # tickets.csv + agentes.csv (NO versionado)
-│   ├── pandas/                        # salidas T1-T5 (NO versionado)
-│   └── spark/                         # salidas T1-T5 (NO versionado)
+│   ├── pandas/                        # salidas T1-T5 pandas (versionado)
+│   └── spark/                         # salidas T1-T5 PySpark, CSV únicos (versionado)
 ├── resultados/
 │   ├── tiempos_crudos.csv · tiempos_resumen.csv
 │   └── figuras/                       # fig0…fig3_*.png (300 DPI)
@@ -142,12 +142,16 @@ Soporte-Tecnico-ACC/
 4. **Captura de la Spark UI** (criterio 1.5): durante la medición (sección 12
    del notebook) abre `Herramientas → Puertos locales → 4040` en Colab y
    guarda la pestaña SQL/Stages como `evidencia/spark_ui_t3.png`.
-5. **Descarga los resultados:** la última celda (sección 15) descarga
-   `resultados_pe_u4.zip` (resultados + evidencia + tablas). Además descarga el
-   notebook ejecutado con `Archivo → Descargar → Descargar .ipynb`.
+5. **Descarga los resultados:** la celda de empaquetado (sección 15) descarga
+   `resultados_pe_u4.zip` (resultados + evidencia + tablas) y
+   `tablas_items_4_12_13_20_23.txt`; la celda final (sección 15b) consolida y
+   **verifica los 10 CSV** (T1–T5 en pandas y Spark) y los descarga en
+   `salidas_pandas.zip` / `salidas_spark.zip`. Además descarga el notebook
+   ejecutado con `Archivo → Descargar → Descargar .ipynb`.
 6. **Trae los archivos al repositorio:** descomprime el zip en la raíz, coloca
-   el `.ipynb` ejecutado en `notebooks/PE_U4_pipeline_spark.ipynb` y la captura
-   en `evidencia/`. Con eso se regeneran las figuras
+   el `.ipynb` ejecutado en `notebooks/PE_U4_pipeline_spark.ipynb`, la captura
+   en `evidencia/` y los CSV de `salidas_pandas.zip` / `salidas_spark.zip` en
+   `data/pandas/` y `data/spark/`. Con eso se regeneran las figuras
    (`python src/graficas.py`), se genera el `.html` desde el notebook ejecutado
    y se redacta el informe LaTeX en local.
 
