@@ -1,39 +1,3 @@
-# -*- coding: utf-8 -*-
-"""Generador determinista del dataset sintético de tickets ISP (dominio ACC).
-
-Criterio 1.1 (Paso 1): se exige un dataset de >= 500 000 registros. Para el
-dominio ACC (Sistema de Gestión de Soporte Técnico ISP) no existe un dataset
-real público de tickets ISP con ese volumen, por lo que la propia guía permite
-usar Faker con semilla fija, declarado explícitamente. Este script genera DOS
-tablas relacionadas (diseño que hace genuino el join de T3, criterio 1.2):
-
-  * data/raw/tickets.csv  (~600 000 filas; FK agente_id -> agentes.agente_id)
-  * data/raw/agentes.csv  (300 agentes del centro de soporte)
-
-El esquema está anclado al dominio real del PFC ACC (docs/db/schema.sql y
-seed-generator de PFC-Soporte-ISP): categorías, estados, prioridades con su
-SLA en horas y canales de atención. Se omiten columnas de texto libre
-(descripcion) para controlar el tamaño del fichero (límite práctico de 100 MB
-de GitHub) y porque T1-T5 no las utilizan.
-
-Semántica de nulos: los valores ausentes (ticket sin agente asignado, ticket
-abierto sin fecha de resolución) se serializan como cadena VACÍA "" en el CSV.
-Es el mismo criterio que usa `carga.py` ("" -> NULL) para garantizar la
-equivalencia pandas <-> PySpark (criterio 1.4).
-
-Determinismo: semilla fija para numpy (default_rng) y Faker; rango de fechas
-fijo (constantes INI/FIN). Con los mismos argumentos, los ficheros generados
-son bit a bit idénticos entre ejecuciones.
-
-Salidas:
-  * data/raw/tickets.csv
-  * data/raw/agentes.csv
-
-Los metadatos para la tabla booktabs del criterio 1.1 (fuente, licencia,
-fecha, registros, columnas y tamaño en disco) se documentan en
-`data/README_dataset.md` y en la salida impresa de `verificar()`.
-"""
-
 from __future__ import annotations
 
 import argparse
