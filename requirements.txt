@@ -1,0 +1,10 @@
+# Entorno de ejecución (Google Colab / Linux).
+# PySpark 3.5.3: soporte oficial de Python 3.12 (3.5.0 no lo declara).
+# Versiones = las medidas realmente en Colab (tabla del ítem 13 del informe):
+# numpy 2.5.1, pandas 2.2.3, matplotlib 3.9.2 (stack numpy 2 coherente).
+pyspark==3.5.3
+pandas==2.2.3
+matplotlib==3.9.2
+numpy==2.5.1
+faker==40.36.0
+setuptools>=68.0
