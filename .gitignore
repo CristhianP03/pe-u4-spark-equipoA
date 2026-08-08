@@ -8,10 +8,6 @@ venv/
 
 ### Datos regenerables (NO versionar) ###
 data/raw/
-data/pandas/*
-!data/pandas/.gitkeep
-data/spark/*
-!data/spark/.gitkeep
 
 ### Logs ###
 resultados/*.log
