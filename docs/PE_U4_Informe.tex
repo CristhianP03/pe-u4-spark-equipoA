@@ -506,3 +506,127 @@ se apliquen lo antes posible y reduzcan cuanto antes el volumen de datos que
 atraviesa las etapas siguientes-- lo que explica por qu\'e las
 transformaciones sobre DataFrames no necesariamente se ejecutan en el orden
 textual en que fueron escritas en el c\'odigo \cite{zaharia2016,chambers2018}.
+
+\subsection{Computaci\'on en la nube: modelos y proveedores}
+\label{sec:fundamento-nube}
+
+El Instituto Nacional de Est\'andares y Tecnolog\'ia de Estados Unidos (NIST)
+define el c\'omputo en la nube, en su publicaci\'on de referencia SP 800-145,
+como un modelo que habilita acceso bajo demanda, conveniente y a trav\'es de
+la red, a un conjunto compartido de recursos de c\'omputo configurables
+(redes, servidores, almacenamiento, aplicaciones y servicios) que pueden
+aprovisionarse y liberarse con un esfuerzo de gesti\'on m\'inimo
+\cite{mell2011}. Esta definici\'on formaliza cuatro modelos de servicio,
+organizados por el nivel de abstracci\'on que ofrecen al usuario:
+\textbf{IaaS} (\emph{Infrastructure as a Service}), que expone m\'aquinas
+virtuales, redes y almacenamiento en bruto; \textbf{PaaS} (\emph{Platform as
+a Service}), que entrega un entorno de ejecuci\'on gestionado sobre el cual
+el usuario despliega su propia aplicaci\'on sin administrar la
+infraestructura subyacente; \textbf{SaaS} (\emph{Software as a Service}),
+donde el usuario consume una aplicaci\'on completa a trav\'es de la red; y
+\textbf{FaaS} (\emph{Function as a Service}), un modelo de c\'omputo
+\emph{serverless} en el que el usuario despliega funciones individuales que
+se ejecutan en respuesta a eventos, sin aprovisionar servidores de forma
+expl\'icita \cite{mell2011}.
+
+El mismo documento del NIST identifica cinco caracter\'isticas esenciales que
+distinguen al c\'omputo en la nube de la infraestructura tradicional
+\cite{mell2011}: \emph{autoservicio bajo demanda} (el usuario aprovisiona
+recursos de c\'omputo autom\'aticamente, sin intervenci\'on humana del
+proveedor); \emph{acceso amplio a la red} (los recursos est\'an disponibles a
+trav\'es de mecanismos est\'andar, accesibles desde plataformas
+heterog\'eneas); \emph{agrupaci\'on de recursos} (\emph{pooling}), donde los
+recursos f\'isicos del proveedor sirven a m\'ultiples clientes bajo un modelo
+multi-inquilino, asignados din\'amicamente seg\'un demanda; \emph{elasticidad
+r\'apida}, la capacidad de aprovisionar y liberar recursos de forma
+pr\'acticamente instant\'anea para adaptarse a la carga; y \emph{servicio
+medido}, donde el uso de recursos se monitorea, controla y factura de forma
+transparente para el proveedor y el consumidor.
+
+Los tres proveedores dominantes de nube p\'ublica --Amazon Web Services,
+Microsoft Azure y Google Cloud Platform-- ofrecen cada uno un servicio
+gestionado espec\'ificamente para ejecutar Apache Spark a escala de
+producci\'on: Amazon EMR, Azure HDInsight (o su sucesor Azure Databricks) y
+Google Cloud Dataproc, respectivamente \cite{chambers2018,zaharia2016}. Estos
+servicios abstraen exactamente la parte de la gesti\'on de infraestructura
+que, en este proyecto, se simplific\'o artificialmente con fines educativos
+usando el modo \texttt{local[N]} de Google Colab: el aprovisionamiento de
+nodos, el escalado autom\'atico del cl\'uster seg\'un la carga, el parcheo de
+seguridad del sistema operativo y la configuraci\'on de red entre executors.
+En un despliegue real de un sistema de soporte t\'ecnico ISP como ACC,
+ser\'ia uno de estos tres servicios gestionados --no un cl\'uster local
+simulado-- el que sostendr\'ia el pipeline de procesamiento en producci\'on.
+
+Finalmente, dos patrones arquitect\'onicos son relevantes para decidir c\'omo
+evolucionar\'ia este pipeline si los datos de tickets llegaran en tiempo real
+en vez de en lote, como se discute en la Pregunta~3 del Anexo A
+(Secci\'on~\ref{sec:preguntas}): la arquitectura \textbf{Lambda} combina una
+capa de procesamiento por lotes (\emph{batch}, que recalcula vistas exactas
+sobre el hist\'orico completo de datos, con alta latencia pero exactitud
+garantizada) con una capa de velocidad (\emph{speed layer}, que procesa el
+flujo reciente de eventos con baja latencia pero resultados aproximados),
+unificadas en una capa de servicio que combina ambas vistas para responder
+consultas; la arquitectura \textbf{Kappa}, por su parte, simplifica este
+esquema eliminando la capa de lotes y tratando tambi\'en los datos
+hist\'oricos como un flujo reproducible sobre el mismo motor de streaming,
+evitando as\'i mantener dos rutas de c\'odigo distintas para el mismo
+c\'omputo \cite{zaharia2016,mell2011}.
+
+Si el pipeline de tickets de soporte de ACC se llevara a producci\'on, la
+elecci\'on entre procesamiento por lotes (el enfoque de esta pr\'actica) y
+streaming depender\'ia directamente de la urgencia de la decisi\'on de
+negocio que dependa de \'el: un reporte gerencial semanal de tickets por
+categor\'ia admite perfectamente un procesamiento batch nocturno, pero una
+alerta de corte masivo de servicio --donde cientos de tickets de la misma
+zona llegan en minutos-- exige una arquitectura de streaming (Lambda o Kappa)
+capaz de disparar una respuesta operativa casi en tiempo real.
+
+\section{Procedimiento Aplicado}
+\label{sec:procedimiento}
+
+\subsection{Entorno y conjunto de datos}
+\label{sec:dataset}
+
+No existe un dataset real p\'ublico de tickets de soporte ISP con al menos
+500\,000 registros (verificado por el equipo). La gu\'ia de la asignatura
+permite expl\'icitamente el uso de datos sint\'eticos generados con
+\texttt{Faker} y semilla fija, declarado en el informe. Por ello, el equipo
+gener\'o de forma determinista (\texttt{src/generar\_dataset\_acc.py},
+semilla \texttt{42}) dos tablas relacionadas mediante la clave for\'anea
+\texttt{tickets.agente\_id} $\rightarrow$ \texttt{agentes.agente\_id}, dise\~no
+que hace gen\'uino el \emph{join} de T3 (no un \emph{self-join} sobre el
+propio dataset). El esquema (categor\'ias, estados, prioridades con su SLA en
+horas, canales y zonas) est\'a anclado al dominio real del PFC ACC. La
+Tabla~\ref{tab:dataset} resume los metadatos exigidos por el criterio 1.1.
+
+\begin{table}[htbp]
+\centering
+\caption{Metadatos del dataset sint\'etico de tickets ISP (ACC).}
+\label{tab:dataset}
+\begin{tabular}{@{}p{3.3cm}p{9.5cm}@{}}
+\toprule
+\textbf{Campo} & \textbf{Valor} \\
+\midrule
+Fuente & Sint\'etico (Faker \texttt{es\_MX} + numpy/pandas, semilla fija 42) \\
+URL (generaci\'on) & \texttt{src/generar\_dataset\_acc.py} (repositorio \texttt{Soporte-Tecnico-ACC}) \\
+Licencia & Datos generados por el propio equipo; c\'odigo bajo licencia MIT (\texttt{LICENSE}) \\
+Fecha de generaci\'on (UTC) & 2026-08-07T04:50:09+00:00 \\
+Registros & 600\,000 tickets / 300 agentes \\
+Columnas & 15 (\texttt{tickets.csv}) / 7 (\texttt{agentes.csv}) \\
+Tama\~no en disco & 75.8\,MB (\texttt{tickets.csv}) / $<$0.1\,MB (\texttt{agentes.csv}) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Los valores ausentes se serializan como cadena vac\'ia \texttt{""} en el CSV
+(\texttt{agente\_id} vac\'io: ticket sin agente asignado; \texttt{fecha\_resolucion}
+vac\'ia: ticket a\'un abierto). pandas convierte \texttt{""} $\to$
+\texttt{NaN} y PySpark \texttt{""} $\to$ \texttt{NULL}: ese criterio \'unico
+de normalizaci\'on de nulos, aplicado id\'enticamente en ambos motores, es lo
+que garantiza la equivalencia num\'erica de T1--T5 verificada en la
+Secci\'on~\ref{sec:equivalencia} (criterio 1.4). \texttt{data/raw/} no se
+versiona en el repositorio (es regenerable bit a bit con los mismos
+argumentos); en su lugar se versionan los diez CSV de salida del pipeline
+(\texttt{data/pandas/*.csv}, \texttt{data/spark/*.csv}) como evidencia
+directa de la ejecuci\'on.
+
