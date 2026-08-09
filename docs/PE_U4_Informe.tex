@@ -630,3 +630,146 @@ argumentos); en su lugar se versionan los diez CSV de salida del pipeline
 (\texttt{data/pandas/*.csv}, \texttt{data/spark/*.csv}) como evidencia
 directa de la ejecuci\'on.
 
+
+\subsection{Configuraci\'on efectiva de Spark}
+\label{sec:config-spark}
+
+La sesi\'on de Spark se inicializa con \texttt{master=local[N]}, donde $N \in
+\{1,2,4\}$ simula el n\'umero de executors en una sola m\'aquina (Google
+Colab). El par\'ametro \texttt{spark.executor.instances=4} se fija por
+requisito del checklist de la asignatura, pero en modo \texttt{local[N]}
+Spark crea siempre \emph{un} proceso executor con $N$ hilos: la
+paralelizaci\'on efectiva es la que da \texttt{local[N]}, no el valor de
+\texttt{executor.instances}, limitaci\'on que se documenta expl\'icitamente
+para que no se interprete err\'oneamente como un cl\'uster de cuatro nodos
+f\'isicos. El \emph{broadcast join} se desactiva
+(\texttt{autoBroadcastJoinThreshold=-1}) para forzar que T3 ejecute siempre
+un \emph{sort-merge join} con \emph{shuffle} real y distribuido; sin esta
+configuraci\'on, Spark transmitir\'ia la tabla peque\~na \texttt{agentes} a
+todos los executors y el \emph{shuffle} --el fen\'omeno central del
+an\'alisis de la Secci\'on~\ref{sec:analisis}-- desaparecer\'ia. La
+Tabla~\ref{tab:sparkconf} transcribe, sin modificaciones, el subconjunto
+relevante de la salida real de \texttt{spark.sparkContext.getConf().getAll()}
+obtenida en la ejecuci\'on documentada en \texttt{notebooks/PE\_U4\_pipeline\_spark.ipynb}.
+
+\begin{table}[htbp]
+\centering
+\caption{Configuraci\'on efectiva de la SparkSession (salida real de \texttt{getConf().getAll()}, ejecuci\'on N=4).}
+\label{tab:sparkconf}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Clave} & \textbf{Valor} \\
+\midrule
+\texttt{spark.master} & \texttt{local[4]} \\
+\texttt{spark.app.name} & \texttt{pe-u4-notebook (N=4)} \\
+\texttt{spark.executor.instances} & \texttt{4} \\
+\texttt{spark.sql.autoBroadcastJoinThreshold} & \texttt{-1} \\
+\texttt{spark.sql.shuffle.partitions} & \texttt{16} \\
+\texttt{spark.sql.session.timeZone} & \texttt{UTC} \\
+\texttt{spark.ui.enabled} & \texttt{true} \\
+\texttt{spark.driver.host} & \texttt{127.0.0.1} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+El n\'umero de particiones de \emph{shuffle} se fija en
+\texttt{max(4$\times N$, 8)} (16 para $N=4$), de modo que el paralelismo del
+\emph{shuffle} escale acorde al n\'umero de executors simulados en cada
+corrida. \texttt{spark.sql.session.timeZone=UTC} asegura que las funciones
+\texttt{year()}/\texttt{month()} de Spark extraigan los mismos componentes de
+fecha que \texttt{pandas.Timestamp} en T4. \texttt{spark.ui.enabled=true}
+habilita la Spark UI en el puerto 4040, capturada como evidencia en la
+Figura~\ref{fig:sparkui}.
+
+\subsection{Implementaci\'on con pandas y PySpark}
+\label{sec:implementacion}
+
+\begin{sloppypar}
+Las cinco transformaciones (T1 filtrado, T2 agrupaci\'on, T3 join, T4
+derivadas, T5 top-N) se implementan de forma espejada en los m\'odulos
+\texttt{transformaciones\_}\allowbreak\texttt{pandas.py} y
+\texttt{transformaciones\_}\allowbreak\texttt{spark.py}, dentro de la carpeta
+\texttt{src/}. A continuaci\'on se listan los
+fragmentos representativos de cada transformaci\'on; el c\'odigo completo,
+incluyendo la lectura y normalizaci\'on de nulos, est\'a disponible en el
+repositorio.
+\end{sloppypar}
+
+\begin{lstlisting}[language=Python,caption={T1 -- Filtrado (pandas).},label={lst:t1-pandas}]
+def t1_filtrado(df: pd.DataFrame) -> pd.DataFrame:
+    return base_filtrada(df)[
+        ["ticket_id", "cliente_id", "agente_id", "categoria", "prioridad",
+         "canal", "zona", "fecha_creacion", "fecha_resolucion"]
+    ]
+\end{lstlisting}
+
+\begin{lstlisting}[language=Python,caption={T1 -- Filtrado (PySpark).},label={lst:t1-spark}]
+def t1_filtrado(df):
+    return base_filtrada(df).select(
+        "ticket_id", "cliente_id", "agente_id", "categoria", "prioridad",
+        "canal", "zona", "fecha_creacion", "fecha_resolucion",
+    )
+\end{lstlisting}
+
+\begin{lstlisting}[language=Python,caption={T2 -- Agrupaci\'on con 6 agregaciones por (categoria, zona) (pandas).},label={lst:t2-pandas}]
+def t2_agrupacion(df: pd.DataFrame) -> pd.DataFrame:
+    d = df[df["categoria"].notna() & df["zona"].notna()].copy()
+    g = (
+        d.groupby(["categoria", "zona"], dropna=False)
+        .agg(
+            cnt=("ticket_id", "count"),
+            sum_sla=("sla_horas", "sum"),
+            avg_sla=("sla_horas", "mean"),
+            max_hora=("hora_creacion", "max"),
+            avg_dia=("dia_semana_creacion", "mean"),
+            min_mes=("mes_creacion", "min"),
+        )
+        .reset_index()
+    )
+    return g
+\end{lstlisting}
+
+\begin{lstlisting}[language=Python,caption={T3 -- Join inner tickets $\bowtie$ agentes, sort-merge con shuffle real (PySpark).},label={lst:t3-spark}]
+def t3_join(df, agentes):
+    base = base_filtrada(df)
+    unido = base.join(agentes, on="agente_id", how="inner")
+    unido = unido.withColumnRenamed("nombre", "nombre_agente")
+    return unido.orderBy("ticket_id").select(
+        "ticket_id", "cliente_id", "agente_id", "categoria", "prioridad",
+        "canal", "zona", "fecha_creacion", "nombre_agente", "equipo", "nivel",
+    )
+\end{lstlisting}
+
+\begin{lstlisting}[language=Python,caption={T4 -- Variables derivadas: fecha, tiempo de respuesta, SLA, prioridad cr\'itica (pandas).},label={lst:t4-pandas}]
+def t4_derivada(df: pd.DataFrame) -> pd.DataFrame:
+    d = df[df["fecha_creacion"].notna()].copy()
+    d["anio"] = d["fecha_creacion"].dt.year
+    d["mes"] = d["fecha_creacion"].dt.month
+    d["dia"] = d["dia_semana_creacion"]
+    d["tiempo_respuesta_h"] = (
+        (d["fecha_resolucion"] - d["fecha_creacion"]).dt.total_seconds() / 3600.0
+    )
+    dentro_sla = d["tiempo_respuesta_h"] <= d["sla_horas"]
+    d["sla_cumplido"] = np.where(
+        d["fecha_resolucion"].isna(), np.nan, np.where(dentro_sla, 1, 0)
+    )
+    d["prioridad_critica"] = (d["prioridad"] == "CRITICA").astype(int)
+    d["asunto_mayus"] = d["asunto"].str.upper()
+    columnas = [
+        "ticket_id", "anio", "mes", "dia", "tiempo_respuesta_h",
+        "sla_cumplido", "prioridad_critica", "asunto_mayus", "zona",
+    ]
+    return d[columnas]
+\end{lstlisting}
+
+\begin{lstlisting}[language=Python,caption={T5 -- Top-10 asuntos con m\'as tickets (PySpark).},label={lst:t5-spark}]
+def t5_topn(df):
+    d = df.filter(F.col("asunto").isNotNull())
+    return (
+        d.groupBy("asunto")
+        .count()
+        .withColumnRenamed("count", "cnt")
+        .orderBy(F.col("cnt").desc(), F.col("asunto").asc())
+        .limit(10)
+    )
+\end{lstlisting}
