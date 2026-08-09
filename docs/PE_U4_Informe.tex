@@ -1090,6 +1090,148 @@ para los reportes sobre el hist\'orico completo (cientos de miles de tickets)
 y mantener pandas para consultas puntuales sobre subconjuntos peque\~nos,
 donde el overhead fijo de sesi\'on dominar\'ia el tiempo total.
 
+\section{Preguntas de An\'alisis (Anexo A)}
+\label{sec:preguntas}
+
+\subsection*{Pregunta 1: Speedup m\'aximo de T3 y $N$ para el 90\,\% del m\'aximo}
+
+Con la fracci\'on paralelizable estimada para T3, $p=0.173423$ (equivalente a
+$f_{\text{media}}=0.826577$), el speedup m\'aximo te\'orico ya calculado en
+la Secci\'on~\ref{sec:analisis} es $S_{\max}=1/f_{\text{media}}=1/0.826577=1.209808$.
+Para encontrar el n\'umero de executors $N$ necesario para alcanzar el
+90\,\% de ese l\'imite, se parte de la ecuaci\'on~\eqref{eq:amdahl} y se
+impone $S(N)=0.9\,S_{\max}$:
+\[
+0.9\,S_{\max} = 0.9 \times 1.209808 = 1.088827 .
+\]
+\[
+S(N) = \frac{1}{f_{\text{media}} + \dfrac{p}{N}} = 1.088827
+\quad\Longrightarrow\quad
+f_{\text{media}} + \frac{p}{N} = \frac{1}{1.088827} = 0.918420 .
+\]
+Despejando el t\'ermino paralelo:
+\[
+\frac{p}{N} = 0.918420 - f_{\text{media}} = 0.918420 - 0.826577 = 0.091843 .
+\]
+Y despejando $N$:
+\[
+N = \frac{p}{0.091843} = \frac{0.173423}{0.091843} \approx 1.8885 .
+\]
+Como $N$ debe ser un entero de executors, $N=2$ es el primer valor entero que
+alcanza (y de hecho supera levemente) el 90\,\% del speedup m\'aximo
+te\'orico. Este resultado matem\'atico es plenamente consistente con el dato
+experimental: en la Tabla del an\'alisis cr\'itico, el speedup interno medido
+en $N=2$ (1.117934) ya representa el 92.4\,\% de $S_{\max}$
+($1.117934/1.209808=0.9241$), y $N=4$ no mejora sustancialmente esa
+proporci\'on (1.113456/1.209808=0.9204). En otras palabras: con una
+fracci\'on paralelizable tan baja como 17.3\,\%, el sistema satura su
+beneficio te\'orico con muy pocos executors, y agregar m\'as recursos de
+c\'omputo m\'as all\'a de $N=2$ no tiene, para esta operaci\'on y este
+volumen de datos, retorno pr\'actico --exactamente la advertencia central de
+la Ley de Amdahl aplicada a un caso real \cite{amdahl1967}.
+
+\subsection*{Pregunta 2: transformaciones con overhead de Spark y tama\~no m\'inimo rentable}
+
+Bajo el protocolo de medici\'on de este proyecto, las cinco transformaciones
+obtuvieron speedup superior a $1\times$ (Tabla~\ref{tab:tiempos}), por lo que
+no se observ\'o, en el tama\~no fijo de 600\,000 filas, ning\'un caso donde
+PySpark resultara m\'as lento que pandas. Esto no significa que el overhead
+de Spark sea irrelevante para ACC: significa que, a 600\,000 filas, el
+volumen de trabajo por transformaci\'on ya es suficiente para que el
+paralelismo compense el costo fijo de coordinaci\'on de tareas, serializaci\'on
+JVM$\leftrightarrow$Python (v\'ia Py4J) y planificaci\'on del DAG que tiene
+toda ejecuci\'on de Spark, incluso en modo local. El experimento de umbral
+(Tabla~\ref{tab:umbral}, Secci\'on~\ref{sec:analisis}) es el que permite
+extrapolar hacia tama\~nos menores: en \'el, PySpark ya es m\'as r\'apido que
+pandas incluso en el punto m\'as peque\~no medido (10\,000 filas), lo cual
+sugiere --dentro de las limitaciones metodol\'ogicas ya discutidas sobre el
+arranque de sesi\'on no cronometrado-- que el overhead de \emph{procesamiento}
+puro de Spark es bajo para operaciones tan simples como T2. Aplicado a la
+decisi\'on de negocio de ACC: si el equipo de TI ejecuta sus reportes de
+tickets sobre una sesi\'on Spark ya activa (por ejemplo, un notebook de
+an\'alisis diario o un cl\'uster compartido), la migraci\'on se justifica
+pr\'acticamente desde cualquier volumen de tickets diarios que ya se procese
+en un pipeline automatizado; si en cambio cada reporte dispara su propio
+proceso Spark desde cero, el overhead fijo de arranque de sesi\'on (varios
+segundos, no medidos en este experimento por dise\~no) solo se amortiza a
+partir de vol\'umenes de al menos decenas de miles de tickets por corrida
+--un umbral que, para un ISP de tama\~no medio con miles de tickets
+mensuales, se alcanza con facilidad en reportes acumulados semanales o
+mensuales, aunque no necesariamente en consultas ad-hoc sobre el d\'ia en
+curso.
+
+\subsection*{Pregunta 3: Spark Structured Streaming para tickets en tiempo real}
+
+Si los tickets de soporte de ACC llegaran como un flujo continuo de eventos
+en vez de procesarse por lotes, la arquitectura del pipeline cambiar\'ia de
+forma sustancial usando Spark Structured Streaming. La \textbf{fuente}
+(\emph{source}) dejar\'ia de ser un archivo CSV est\'atico y pasar\'ia a ser
+un sistema de mensajer\'ia como Apache Kafka, donde cada apertura de ticket
+se publicar\'ia como un evento en el momento exacto en que el cliente lo
+reporta (por WEB, APP, tel\'efono o email). El \textbf{sink} (destino) ser\'ia
+el almacenamiento de los resultados agregados en tiempo casi real: por
+ejemplo, una tabla de conteos por categor\'ia y zona actualizada
+continuamente (el equivalente en streaming de T2) que alimenta un tablero de
+monitoreo operativo, o una tabla de alertas que se activa cuando el conteo de
+tickets de una misma zona supera un umbral en una ventana de tiempo corta
+--la se\~nal que interesar\'ia a un ISP para detectar un corte masivo de
+servicio en curso. La \textbf{pol\'itica de \emph{triggers}} definir\'ia cada
+cu\'anto se procesan los micro-lotes acumulados desde la \'ultima ejecuci\'on
+(por ejemplo, cada 30 segundos con \texttt{trigger(processingTime=`30
+seconds')}), equilibrando la latencia de la alerta con el costo de procesar
+lotes demasiado peque\~nos con demasiada frecuencia. Finalmente, las
+\textbf{garant\'ias de entrega} determinar\'ian c\'omo se maneja la
+posibilidad de que un mismo evento de ticket se procese m\'as de una vez ante
+un fallo y reinicio del sistema: \emph{at-least-once} garantiza que ning\'un
+ticket se pierda pero permite duplicados (aceptable si la agregaci\'on
+posterior es idempotente, por ejemplo contando por \texttt{ticket\_id}
+\'unico), mientras que \emph{exactly-once} --que Structured Streaming ofrece
+mediante \emph{checkpointing} y fuentes/sumideros transaccionales-- evita
+duplicados por completo a costa de mayor complejidad y latencia. Esta
+arquitectura conecta directamente con los patrones de la
+Secci\'on~\ref{sec:fundamento-nube}: ser\'ia una arquitectura \textbf{Kappa}
+si se decide tratar tambi\'en el hist\'orico de tickets como un flujo
+reproducible sobre el mismo motor de streaming (simplificando el
+mantenimiento a un solo camino de c\'odigo), o una arquitectura
+\textbf{Lambda} si se prefiere mantener el pipeline batch actual (este mismo
+informe) para los reportes hist\'oricos exactos, y a\~nadir la capa de
+streaming \'unicamente para las alertas operativas de baja latencia
+\cite{mell2011,zaharia2016}.
+
+\subsection*{Pregunta 4: por qu\'e Spark es m\'as eficiente que MapReduce para procesamiento iterativo}
+
+La ventaja de Spark sobre MapReduce en cargas de trabajo iterativas se
+explica por dos decisiones de dise\~no ya desarrolladas en la
+Secci\'on~\ref{sec:fundamento}: el modelo de datos en memoria basado en RDD
+con \emph{lineage}, y la evaluaci\'on perezosa. MapReduce, como se describi\'o
+en la Secci\'on~\ref{sec:fundamento-mapreduce}, materializa --escribe a
+disco, en HDFS-- el resultado de cada job antes de que el siguiente job
+pueda leerlo; si un mismo conjunto de datos se necesita en varias iteraciones
+sucesivas (por ejemplo, un algoritmo que recalcula agregaciones sobre el
+mismo subconjunto de tickets en varias pasadas), MapReduce paga el costo
+completo de I/O a disco en cada una de esas pasadas, sin excepci\'on. Spark,
+en cambio, puede mantener un RDD o DataFrame en memoria entre operaciones
+sucesivas: como el \emph{lineage} registra c\'omo reconstruir cada
+partici\'on a partir de los datos originales, Spark no necesita la
+redundancia f\'isica en disco que MapReduce s\'i requiere para tolerar
+fallos, lo que le permite evitar la escritura intermedia sin sacrificar
+tolerancia a fallos \cite{zaharia2012}. En segundo lugar, la evaluaci\'on
+perezosa permite que el optimizador (Catalyst, sobre DataFrames) vea el
+\textbf{plan completo} de transformaciones antes de ejecutar una sola de
+ellas, lo que le permite eliminar trabajo redundante, reordenar operaciones
+para reducir el volumen de datos que atraviesa cada etapa, y fusionar
+transformaciones consecutivas en una sola pasada f\'isica sobre los datos
+\cite{zaharia2016}. MapReduce, al ejecutar cada job como una unidad aislada
+que no conoce los jobs anteriores ni posteriores en la cadena, no tiene
+forma de aplicar esa clase de optimizaci\'on global: cada job se planifica y
+ejecuta de forma independiente. En el contexto de este proyecto, esta
+diferencia es observable indirectamente en la Secci\'on~\ref{sec:resultados}:
+aunque el pipeline de este experimento ejecuta cada transformaci\'on T1--T5
+como una unidad independiente (para poder medir cada una por separado), un
+pipeline de producci\'on que encadenara varias de estas transformaciones
+sobre el mismo DataFrame base se beneficiar\'ia de exactamente esta ventaja
+--algo que MapReduce, por dise\~no, no podr\'ia ofrecer sin reescribir cada
+etapa como un job separado con su propio costo de I/O.
 
 
 
