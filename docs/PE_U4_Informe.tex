@@ -833,6 +833,95 @@ Fecha de ejecuci\'on (UTC) & 2026-08-07T18:57:00+00:00 \\
 \end{table}
 
 
+\section{Resultados}
+\label{sec:resultados}
+
+\subsection{Tiempos de ejecuci\'on: pandas vs.\ PySpark}
+
+La Tabla~\ref{tab:tiempos} resume el tiempo mediano (de cinco repeticiones,
+tras un calentamiento descartado) de cada transformaci\'on en ambos motores,
+junto con el speedup $S=T_{\text{pandas}}/T_{\text{PySpark}}$. Para T3 se
+reporta el resultado con $N=4$ executors (configuraci\'on base de las dem\'as
+transformaciones); el escalado completo de T3 con $N=1,2,4$ se presenta en la
+Secci\'on~\ref{sec:analisis}.
+
+\begin{table}[htbp]
+\centering
+\caption{Tiempos medianos (s) y speedup por transformaci\'on.}
+\label{tab:tiempos}
+\begin{tabular}{@{}lrrrp{5.2cm}@{}}
+\toprule
+\textbf{Transf.} & \textbf{pandas (\si{\second})} & \textbf{PySpark (\si{\second})} & \textbf{Speedup} & \textbf{Interpretaci\'on} \\
+\midrule
+T1 & 9.44  & 6.21 & 1.52$\times$ & Filtrado: paralelismo de datos casi puro, sin shuffle. \\
+T2 & 8.34  & 4.36 & 1.91$\times$ & Agrupaci\'on con 6 agregados; shuffle acotado (30 grupos de salida). \\
+T3 & 10.12 & 7.09 & 1.43$\times$ & Join con shuffle real; menor speedup del grupo (Secci\'on~\ref{sec:analisis}). \\
+T4 & 12.30 & 8.38 & 1.47$\times$ & Mayor tiempo absoluto (columnas derivadas por fila, 600\,000 filas). \\
+T5 & 6.27  & 2.45 & 2.56$\times$ & Mayor speedup: agregaci\'on simple + \texttt{limit(10)}, salida m\'inima. \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.8\textwidth]{../resultados/figuras/fig1_barras.png}
+\caption{Tiempo mediano por transformaci\'on, pandas vs.\ PySpark.}
+\label{fig:barras}
+\end{figure}
+
+La Figura~\ref{fig:barras} muestra que las cinco transformaciones son m\'as
+r\'apidas en PySpark que en pandas bajo el protocolo de medici\'on de este
+proyecto, sin excepci\'on. El patr\'on no es uniforme: T5 (top-N) obtiene el
+mayor speedup (2.56$\times$) porque es la operaci\'on con menor volumen de
+datos de salida (una agregaci\'on simple seguida de \texttt{limit(10)}, que
+Catalyst puede optimizar agresivamente), mientras que T3 (join) obtiene el
+menor speedup (1.43$\times$) porque es la \'unica transformaci\'on que
+requiere \emph{shuffle} completo de las dos tablas para poder emparejarlas
+--el costo de comunicaci\'on entre executors reduce, pero no elimina, la
+ventaja de paralelizar el c\'omputo.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.8\textwidth]{../resultados/figuras/fig2_speedup.png}
+\caption{Speedup medido de T3 para $N=1,2,4$ frente a la curva te\'orica de Amdahl.}
+\label{fig:speedup}
+\end{figure}
+
+La Figura~\ref{fig:speedup} superpone el speedup medido de T3
+($S_{\text{interno}}(N)=T_{\text{Spark}}(1)/T_{\text{Spark}}(N)$) con la
+curva te\'orica de Amdahl calculada con la fracci\'on paralelizable estimada
+a partir de los propios datos ($p=0.173$). El sistema real queda por debajo
+del l\'imite te\'orico para $N=2$ y pr\'acticamente lo alcanza -- sin
+superarlo -- para $N=4$, donde de hecho el tiempo absoluto es ligeramente
+mayor que en $N=2$: la Secci\'on~\ref{sec:analisis} discute esta
+no-monotonicidad como evidencia de sobrecarga de coordinaci\'on que supera el
+beneficio marginal de duplicar executors en un cl\'uster local simulado.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.8\textwidth]{../resultados/figuras/fig3_eficiencia.png}
+\caption{Eficiencia $E(N)=S(N)/N$ de T3 para $N=1,2,4$.}
+\label{fig:eficiencia}
+\end{figure}
+
+La Figura~\ref{fig:eficiencia} muestra la ca\'ida caracter\'istica de
+eficiencia predicha por la Ley de Amdahl: de $E(1)=1.00$ a $E(2)=0.56$ y
+$E(4)=0.28$, una reducci\'on de m\'as de la mitad cada vez que se duplican
+los executors --el s\'intoma cuantitativo de que la fracci\'on paralelizable
+observada de T3 es baja.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.75\textwidth]{../evidencia/spark_ui_t3.png}
+\caption{Spark UI: DAG y stages de la ejecuci\'on de T3 (join), incluyendo la etapa de \emph{shuffle}.}
+\label{fig:sparkui}
+\end{figure}
+
+La Figura~\ref{fig:sparkui} documenta, como evidencia de ejecuci\'on real
+(criterio 1.5), el DAG y los \emph{stages} generados por Spark al ejecutar
+T3: se observa la etapa de lectura y filtrado, la etapa de \emph{shuffle}
+asociada al join, y la etapa final de escritura que materializa el
+resultado.
 
 
 
