@@ -1234,11 +1234,31 @@ sobre el mismo DataFrame base se beneficiar\'ia de exactamente esta ventaja
 etapa como un job separado con su propio costo de I/O.
 
 
+===========================================================================
+\section{Conclusiones Individuales}
+\label{sec:conclusiones}
 
+\subsection*{Cristhian Daniel Pacheco C\'ardenas}
 
-
-
-
-
-
-
+Implementar el escalado de T3 con $N=1,2,4$ executors me ense\~n\'o algo que
+no era evidente antes de medirlo: agregar m\'as executors no solo puede dejar
+de ayudar, puede incluso empeorar levemente el tiempo total, como pas\'o
+entre $N=2$ (7.06\,s) y $N=4$ (7.09\,s) en nuestra propia medici\'on. Al
+principio pens\'e que era ruido de medici\'on, pero al repetir la
+protocolo (calentamiento + 5 repeticiones con mediana) el patr\'on se
+mantuvo, y entendiendo la configuraci\'on de \texttt{shuffle.partitions=max(4N,8)}
+que yo mismo configur\'e en \texttt{crear\_spark()}, qued\'o claro que
+duplicar las particiones de \emph{shuffle} de 8 a 16 agrega m\'as
+coordinaci\'on de la que un cl\'uster local de una sola m\'aquina puede
+compensar con paralelismo real. Aplicado a un despliegue real de ACC, este
+aprendizaje se traduce en algo muy concreto: el n\'umero de executors y el
+n\'umero de particiones de \emph{shuffle} de un pipeline de tickets no deben
+fijarse por intuici\'on ni copiarse de un tutorial gen\'erico, sino ajustarse
+emp\'iricamente al volumen real de datos y a la operaci\'on concreta
+--porque, como vimos con T3, m\'as recursos de c\'omputo no siempre significan
+mejor rendimiento. Mi aporte principal estuvo en la implementaci\'on de las
+transformaciones PySpark y el protocolo de medici\'on con
+\texttt{time.perf\_counter}, lo que me oblig\'o a entender en detalle por
+qu\'e la evaluaci\'on perezosa de Spark exige forzar una acci\'on
+(\texttt{write.csv}) para medir tiempo real y no solo la construcci\'on del
+plan.
