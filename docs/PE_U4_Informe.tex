@@ -1262,3 +1262,32 @@ transformaciones PySpark y el protocolo de medici\'on con
 qu\'e la evaluaci\'on perezosa de Spark exige forzar una acci\'on
 (\texttt{write.csv}) para medir tiempo real y no solo la construcci\'on del
 plan.
+
+\subsection*{Robinson Rodrigo Cando Moreno}
+
+Calcular la fracci\'on serial observada de T3 con la ecuaci\'on inversa de
+Amdahl fue el momento en que la teor\'ia dej\'o de ser abstracta para m\'i:
+obtener $p=0.173$ --una fracci\'on paralelizable de apenas 17\,\%-- para una
+operaci\'on de join que, a nivel de c\'odigo, parece completamente
+paralelizable, me hizo entender de forma muy concreta la advertencia
+metodol\'ogica que hab\'iamos le\'ido en la gu\'ia: lo que Amdahl mide no es
+secuencialidad de algoritmo, es secuencialidad de \emph{ejecuci\'on}, y en
+Spark esa secuencialidad observada est\'a dominada por el \emph{shuffle}, no
+por el join en s\'i. Verificar la equivalencia num\'erica de las cinco
+transformaciones entre pandas y PySpark (Tabla~\ref{tab:equivalencia}) tambi\'en
+me ense\~n\'o algo espec\'ifico sobre reproducibilidad: la \'unica raz\'on por
+la que pudimos confiar en comparar los tiempos de ambos motores es que antes
+verificamos, fila por fila y agregado por agregado, que ambos produc\'ian
+exactamente el mismo resultado --sin esa verificaci\'on previa, cualquier
+diferencia de tiempo podr\'ia haber sido, en realidad, una diferencia de qu\'e
+se estaba calculando. Para ACC, esto se traduce en que ning\'un an\'alisis de
+rendimiento de un futuro pipeline de tickets deber\'ia tomarse en serio sin
+antes confirmar que los resultados de ambos motores coinciden num\'ericamente;
+de lo contrario, se estar\'ia optimizando la velocidad de un c\'alculo
+incorrecto. Mi aporte se concentr\'o en el an\'alisis de Amdahl/Gustafson, la
+verificaci\'on de equivalencia y el estudio del umbral de rentabilidad.
+
+
+
+
+
