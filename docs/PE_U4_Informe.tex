@@ -355,6 +355,154 @@ Por esta raz\'on, T3 es la transformaci\'on elegida en este experimento para
 el escalado con $N=1,2,4$ executors: es la que mejor expone, con datos
 reales, la diferencia entre paralelismo te\'orico y paralelismo efectivo.
 
+\subsection{Paradigma MapReduce y Apache Hadoop}
+\label{sec:fundamento-mapreduce}
 
+El modelo de programaci\'on MapReduce, formalizado por Dean y Ghemawat en
+Google y publicado en su versi\'on ampliamente citada en 2008
+\cite{dean2008}, surgi\'o de una motivaci\'on concreta: permitir que
+ingenieros sin experiencia en sistemas distribuidos pudieran procesar
+vol\'umenes de datos del orden de terabytes o petabytes sobre cl\'usteres de
+hardware com\'un (\emph{commodity hardware}), abstrayendo de la l\'ogica de
+la aplicaci\'on los detalles de distribuci\'on de datos, paralelizaci\'on,
+tolerancia a fallos y balanceo de carga \cite{dean2008,white2015}.
 
+El modelo se estructura en dos funciones puras que el programador debe
+implementar. La funci\'on \textbf{Map} recibe pares clave-valor de entrada y
+produce, para cada uno, cero o m\'as pares clave-valor intermedios. La
+funci\'on \textbf{Reduce} recibe, para cada clave intermedia distinta, la
+lista completa de valores asociados a esa clave (ya agrupados por el propio
+framework) y produce el resultado final agregado para esa clave
+\cite{dean2008}. Un ejemplo aplicado al dominio ACC ilustra el patr\'on con
+claridad: para contar tickets por categor\'ia de incidencia, Map emitir\'ia,
+por cada ticket procesado, el par (\texttt{categoria}, 1); Reduce
+recibir\'ia, para cada categor\'ia, la lista completa de unos emitidos y
+devolver\'ia su suma --exactamente la agregaci\'on de conteo que en este
+proyecto se implementa como T2 mediante \texttt{groupBy}.
 
+La ejecuci\'on completa de un job de MapReduce atraviesa cinco fases
+\cite{dean2008,white2015}: \emph{split}, donde el dataset de entrada se
+divide en fragmentos independientes que pueden procesarse en paralelo;
+\emph{map}, donde cada fragmento se procesa de forma independiente y en
+paralelo por una tarea Map; \emph{shuffle}, donde los pares intermedios se
+redistribuyen entre los nodos seg\'un su clave, de modo que todos los valores
+de una misma clave terminen en el mismo nodo; \emph{sort}, donde los valores
+dentro de cada partici\'on se ordenan por clave antes de agruparlos; y
+\emph{reduce}, donde se ejecuta la funci\'on de agregaci\'on final sobre cada
+grupo de clave-valores.
+
+La implementaci\'on de referencia de este modelo, Apache Hadoop, se apoya en
+dos componentes arquitect\'onicos: HDFS (\emph{Hadoop Distributed File
+System}), un sistema de archivos distribuido que replica cada bloque de
+datos en varios nodos (t\'ipicamente tres copias) para garantizar tolerancia
+a fallos sin depender de hardware especializado; y YARN (\emph{Yet Another
+Resource Negotiator}), el gestor de recursos del cl\'uster que asigna
+memoria y c\'omputo a las tareas Map y Reduce en ejecuci\'on
+\cite{white2015,dean2008}. Esta arquitectura ofrece dos ventajas centrales:
+escalabilidad horizontal con hardware econ\'omico (agregar m\'as nodos
+aumenta linealmente la capacidad de almacenamiento y c\'omputo) y tolerancia
+a fallos autom\'atica mediante replicaci\'on, sin intervenci\'on del
+programador \cite{white2015}.
+
+Sin embargo, el propio dise\~no de MapReduce impone una limitaci\'on
+estructural relevante para cargas de trabajo iterativas o de consulta
+repetida sobre el mismo conjunto de datos: cada job MapReduce lee sus datos
+de entrada desde disco (HDFS) al iniciar y escribe su resultado de vuelta a
+disco al terminar, incluso si el siguiente job en una cadena de
+procesamiento va a volver a leer exactamente esos mismos datos. En
+algoritmos iterativos --consultas repetidas, algoritmos de aprendizaje
+autom\'atico que requieren m\'ultiples pasadas sobre el mismo dataset-- este
+patr\'on genera una sobrecarga de entrada/salida a disco que se repite en
+cada iteraci\'on, en vez de aprovechar que los datos ya est\'an disponibles
+en memoria desde la iteraci\'on anterior. Esta limitaci\'on es, precisamente,
+el problema central que Apache Spark fue dise\~nado para resolver mediante
+su modelo de datos en memoria, desarrollado en la Secci\'on~\ref{sec:fundamento-spark}.
+
+Por tratarse de una comparaci\'on de rendimiento entre motores, cualquier
+cifra concreta de cu\'antas veces m\'as r\'apido es un motor respecto al otro
+debe respaldarse con evidencia emp\'irica publicada y no con material
+promocional de proveedores. El estudio de referencia usado en este informe
+para esa comparaci\'on es el benchmark HiBench de Ahmed et al.
+\cite{ahmed2020}, retomado con datos propios en la Secci\'on~\ref{sec:fundamento-spark}.
+
+\subsection{Apache Spark: arquitectura y modelo de programaci\'on}
+\label{sec:fundamento-spark}
+
+Apache Spark organiza su ejecuci\'on en tres componentes
+\cite{zaharia2016,chambers2018}: el \textbf{driver}, el proceso donde se
+ejecuta el programa principal del usuario, se construye el grafo de
+transformaciones y se coordina la ejecuci\'on distribuida; el \textbf{cluster
+manager} (YARN, Kubernetes, Mesos, o el modo \texttt{local[N]} usado en este
+proyecto), responsable de asignar recursos f\'isicos a la aplicaci\'on; y los
+\textbf{executors}, procesos que se ejecutan en los nodos de trabajo, corren
+las tareas asignadas y almacenan particiones de datos en memoria o disco
+seg\'un se requiera. En el modo \texttt{local[N]} usado en Colab para este
+experimento, todos estos roles conviven en una sola m\'aquina, y $N$
+determina el n\'umero de hilos que simulan executors --una simplificaci\'on
+necesaria para un entorno educativo de una sola m\'aquina, y una limitaci\'on
+que se documenta expl\'icitamente en la Secci\'on~\ref{sec:procedimiento}.
+
+La abstracci\'on fundamental de datos de Spark es el RDD (\emph{Resilient
+Distributed Dataset}), introducido por Zaharia et al. \cite{zaharia2012}: una
+colecci\'on distribuida e inmutable de objetos, particionada entre los nodos
+del cl\'uster, sobre la que solo pueden aplicarse transformaciones
+deterministas. La propiedad clave de los RDD para la tolerancia a fallos es
+su \emph{lineage} (linaje): en vez de replicar f\'isicamente los datos como
+hace HDFS, Spark registra la secuencia de transformaciones que produjo cada
+RDD a partir de los datos originales. Si una partici\'on se pierde por el
+fallo de un nodo, Spark puede reconstruirla recalculando \'unicamente esa
+porci\'on del linaje, sin necesidad de leer una copia f\'isica de respaldo
+\cite{zaharia2012}. Esta es una diferencia conceptual central frente al
+modelo de HDFS descrito en la Secci\'on~\ref{sec:fundamento-mapreduce}.
+
+Sobre los RDD, Spark ofrece capas de abstracci\'on de m\'as alto nivel
+--DataFrames y Datasets-- que a\~naden un esquema estructurado (columnas con
+nombre y tipo declarado), de forma an\'aloga a una tabla relacional
+\cite{zaharia2016,chambers2018}. Este esquema expl\'icito es lo que permite
+al motor aplicar optimizaciones autom\'aticas que sobre un RDD sin tipado
+estructurado no ser\'ian posibles de forma gen\'erica. Todas las
+transformaciones T1--T5 de este proyecto est\'an implementadas sobre la API
+de DataFrames, tanto en su versi\'on PySpark como en su equivalente
+conceptual de pandas.
+
+Un rasgo de dise\~no central de Spark, y que tuvo una implicaci\'on
+metodol\'ogica directa en este experimento, es la \textbf{evaluaci\'on
+perezosa} (\emph{lazy evaluation}): las transformaciones (\texttt{filter},
+\texttt{groupBy}, \texttt{join}, \texttt{withColumn}) no se ejecutan en el
+momento en que se invocan en el c\'odigo; Spark las acumula en un plan
+l\'ogico y, sobre \'el, construye un plan f\'isico optimizado, pero no
+materializa ning\'un c\'omputo hasta que se invoca una \textbf{acci\'on}
+(\texttt{count()}, \texttt{collect()}, o una escritura a disco como
+\texttt{write.csv()}) \cite{zaharia2016,chambers2018}. Esta caracter\'istica
+es la que obliga, t\'ecnicamente, a que el protocolo de medici\'on de este
+proyecto (Secci\'on~\ref{sec:procedimiento}) fuerce siempre una escritura a
+disco al final de cada transformaci\'on medida: sin una acci\'on expl\'icita,
+un cron\'ometro colocado alrededor del c\'odigo de transformaci\'on
+medir\'ia solo el tiempo de construir el plan de ejecuci\'on (microsegundos),
+no el trabajo real de leer, transformar y persistir 600\,000 filas.
+
+El plan f\'isico que Spark construye se representa como un DAG (grafo
+ac\'iclico dirigido) de \emph{stages}, y cada stage se subdivide en
+\emph{tasks} que se ejecutan en paralelo sobre las particiones de datos,
+t\'ipicamente uno por n\'ucleo/executor disponible \cite{zaharia2016}. Este
+es exactamente el nivel de detalle que se observa en la captura de la Spark
+UI incluida como evidencia en la Secci\'on~\ref{sec:resultados}
+(Figura~\ref{fig:sparkui}), que muestra el DAG real de la transformaci\'on T3
+(join) ejecut\'andose sobre el cl\'uster local de Colab, incluyendo la etapa
+de \emph{shuffle} discutida en la Secci\'on~\ref{sec:analisis}.
+
+Como comparaci\'on de rendimiento frente a MapReduce: el procesamiento en
+memoria de Spark evita, en cargas de trabajo que reutilizan datos entre
+operaciones, las escrituras a disco entre etapas que penalizan a MapReduce en
+flujos iterativos (Secci\'on~\ref{sec:fundamento-mapreduce}); el benchmark
+HiBench de Ahmed et al. \cite{ahmed2020} documenta emp\'iricamente esta
+ventaja sobre cargas de trabajo comparables, resultado que se contrasta con
+los datos propios de este proyecto en la Secci\'on~\ref{sec:resultados}.
+
+Como complemento recomendado, vale precisar el papel del optimizador
+\textbf{Catalyst}: antes de ejecutar un plan sobre DataFrames, Spark lo
+reescribe autom\'aticamente --por ejemplo, reordenando los filtros para que
+se apliquen lo antes posible y reduzcan cuanto antes el volumen de datos que
+atraviesa las etapas siguientes-- lo que explica por qu\'e las
+transformaciones sobre DataFrames no necesariamente se ejecutan en el orden
+textual en que fueron escritas en el c\'odigo \cite{zaharia2016,chambers2018}.
