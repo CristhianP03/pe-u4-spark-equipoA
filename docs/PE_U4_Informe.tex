@@ -923,6 +923,173 @@ T3: se observa la etapa de lectura y filtrado, la etapa de \emph{shuffle}
 asociada al join, y la etapa final de escritura que materializa el
 resultado.
 
+\section{An\'alisis Cr\'itico}
+\label{sec:analisis}
+
+\subsection{Speedup de las cinco transformaciones}
+
+Como se resume en la Tabla~\ref{tab:tiempos}, el speedup
+$S=T_{\text{pandas}}/T_{\text{PySpark}}$ obtenido fue: T1 $=1.52\times$, T2
+$=1.91\times$, T3 (N=4) $=1.43\times$, T4 $=1.47\times$ y T5 $=2.56\times$.
+Las cinco transformaciones muestran speedup positivo (PySpark m\'as r\'apido
+que pandas en todos los casos), sin que ninguna caiga por debajo de
+$1\times$ bajo este protocolo de medici\'on.
+
+\subsection{Fracci\'on serial observada de T3: sustituci\'on num\'erica}
+
+El escalado de T3 se midi\'o con $N=1,2,4$ executors, obteniendo los tiempos
+medianos $T_{\text{Spark}}(1)=7.891465$\,s, $T_{\text{Spark}}(2)=7.058974$\,s
+y $T_{\text{Spark}}(4)=7.087362$\,s. El speedup interno (relativo al propio
+Spark con $N=1$, la comparaci\'on correcta para aplicar la Ley de Amdahl
+dentro del mismo motor) es:
+\[
+S_{\text{interno}}(2) = \frac{T_{\text{Spark}}(1)}{T_{\text{Spark}}(2)} = \frac{7.891465}{7.058974} = 1.117934,
+\qquad
+S_{\text{interno}}(4) = \frac{7.891465}{7.087362} = 1.113456.
+\]
+
+Sustituyendo en la ecuaci\'on~\eqref{eq:fobs} para $N=2$:
+\[
+f_{\text{obs}}(2) = \frac{\dfrac{1}{1.117934} - \dfrac{1}{2}}{1 - \dfrac{1}{2}}
+= \frac{0.894522 - 0.500000}{0.500000}
+= \frac{0.394522}{0.500000}
+= 0.789015 .
+\]
+
+Y para $N=4$:
+\[
+f_{\text{obs}}(4) = \frac{\dfrac{1}{1.113456} - \dfrac{1}{4}}{1 - \dfrac{1}{4}}
+= \frac{0.898086 - 0.250000}{0.750000}
+= \frac{0.648086}{0.750000}
+= 0.864114 \approx 0.864140 .
+\]
+(La diferencia de la \'ultima cifra frente al valor reportado por la
+funci\'on \texttt{calcular\_amdahl()} de \texttt{transformaciones\_pandas.py},
+0.864140, se debe al redondeo intermedio mostrado aqu\'i con seis decimales;
+el valor aut\'oritativo es el calculado en punto flotante de doble
+precisi\'on por el script, sin redondeos intermedios.)
+
+Ambas estimaciones son consistentes entre s\'i (0.789 y 0.864): la fracci\'on
+serial \emph{observada} de T3 es alta --entre 79\,\% y 86\,\% seg\'un el
+$N$-- muy por encima de lo que se esperar\'ia de un join si Amdahl midiera
+\'unicamente la fracci\'on algor\'itmicamente secuencial del c\'odigo. Esto
+es, en s\'i mismo, el primer hallazgo relevante del an\'alisis: confirma que
+$f_{\text{obs}}$ no est\'a midiendo secuencialidad algor\'itmica pura, sino
+--como se advirti\'o en la Secci\'on~\ref{sec:fundamento-amdahl}-- una
+mezcla de fracci\'on serial real m\'as sobrecarga de planificaci\'on,
+serializaci\'on y, sobre todo, el \emph{shuffle} distribuido que redistribuye
+las 180\,003 filas de la base filtrada y las 300 filas de \texttt{agentes}
+entre particiones antes de poder emparejarlas (Figura~\ref{fig:sparkui}).
+
+Promediando las dos estimaciones se obtiene la fracci\'on serial
+representativa usada para el l\'imite te\'orico:
+\[
+f_{\text{media}} = \frac{0.789015 + 0.864140}{2} = 0.826577,
+\qquad
+p = 1 - f_{\text{media}} = 0.173423 .
+\]
+
+\subsection{Speedup m\'aximo te\'orico ($S_{\max}$)}
+
+Aplicando la ecuaci\'on~\eqref{eq:smax} con la fracci\'on serial media
+calculada:
+\[
+S_{\max} = \frac{1}{f_{\text{media}}} = \frac{1}{0.826577} = 1.209808 .
+\]
+En t\'erminos pr\'acticos, este n\'umero es el techo absoluto de aceleraci\'on
+que ning\'un n\'umero adicional de executors --ni 8, ni 16, ni un cl\'uster
+real de cientos de nodos-- podr\'ia superar para T3 bajo esta configuraci\'on
+de shuffle: un techo de apenas 1.21$\times$, notablemente bajo, y coherente
+con el speedup interno ya observado en $N=4$ (1.113$\times$), que se
+encuentra a menos del 10\,\% de distancia relativa de ese l\'imite te\'orico.
+
+\subsection{Fracci\'on serial algor\'itmica vs.\ sobrecarga observada, aplicada a T3}
+
+Como se plante\'o en la Secci\'on~\ref{sec:fundamento-amdahl}, es un error
+conceptual tratar $f_{\text{obs}}$ como si fuera la fracci\'on de
+c\'odigo intr\'insecamente secuencial del algoritmo de join. El join en s\'i
+--emparejar cada ticket con su agente por clave-- es una operaci\'on
+altamente paralelizable en principio: cada par (ticket, agente) puede
+resolverse de forma independiente si ambas filas ya est\'an en el mismo
+executor. Lo que \emph{no} es paralelizable, y por tanto se contabiliza como
+parte de $f_{\text{obs}}$, es el \textbf{\emph{shuffle}} previo: la
+redistribuci\'on f\'isica de las filas de \texttt{tickets} y
+\texttt{agentes} entre executors seg\'un el hash de \texttt{agente\_id},
+necesaria porque no hay garant\'ia de que las filas relacionadas empiecen en
+el mismo executor. Esa redistribuci\'on implica escritura a disco/red de
+datos intermedios, serializaci\'on y sincronizaci\'on entre executors --todo
+overhead de coordinaci\'on del motor, no l\'ogica secuencial del algoritmo de
+join. Con \texttt{autoBroadcastJoinThreshold=-1} (Secci\'on~\ref{sec:config-spark})
+este \emph{shuffle} es obligatorio en todas las corridas, lo cual explica por
+qu\'e $f_{\text{obs}}$ es alto pese a que el join no es, conceptualmente, una
+operaci\'on serial.
+
+Esta distinci\'on tambi\'en explica el hallazgo m\'as llamativo de la
+Figura~\ref{fig:speedup}: el tiempo de T3 en $N=4$ (7.087\,s) es
+\emph{ligeramente mayor} que en $N=2$ (7.059\,s), un resultado no mon\'otono
+--m\'as executors, tiempo pr\'acticamente igual o peor-- que ser\'ia
+sorprendente si la \'unica variable en juego fuera el c\'omputo paralelizable
+del join. Con el \emph{shuffle} como cuello de botella dominante, sin
+embargo, este resultado es coherente: al pasar de $N=2$ a $N=4$ se duplica el
+n\'umero de particiones de \emph{shuffle} (de 8 a 16, seg\'un
+\texttt{max(4$\times N$, 8)}), lo cual aumenta la cantidad de archivos
+intermedios y de tareas de coordinaci\'on del \emph{shuffle} sin que exista
+--en un cl\'uster local de un solo proceso f\'isico, simulado con hilos, y no
+un cl\'uster real de nodos separados-- una ganancia proporcional de ancho de
+banda de red o de I/O para compensar esa sobrecarga adicional. Es, en suma,
+la se\~nal de que el sistema ya alcanz\'o, para esta operaci\'on y este
+volumen de datos, el punto de rendimientos decrecientes que predice la propia
+Ley de Amdahl con una $p$ tan baja como 0.173.
+
+\subsection{Umbral de rentabilidad de Spark para ACC}
+
+La Tabla~\ref{tab:umbral} resume la mediana de tiempo de T2 (agrupaci\'on)
+medida en pandas y PySpark para tama\~nos crecientes del dataset, de 10\,000
+a 600\,000 filas.
+
+\begin{table}[htbp]
+\centering
+\caption{Tiempo mediano (s) de T2 por tama\~no de dataset, pandas vs.\ PySpark.}
+\label{tab:umbral}
+\begin{tabular}{@{}rrr@{}}
+\toprule
+\textbf{Filas} & \textbf{pandas (\si{\second})} & \textbf{PySpark (\si{\second})} \\
+\midrule
+10\,000  & 6.27 & 1.38 \\
+50\,000  & 5.98 & 2.94 \\
+100\,000 & 8.02 & 4.81 \\
+250\,000 & 8.30 & 5.66 \\
+500\,000 & 6.60 & 5.41 \\
+600\,000 & 6.49 & 4.94 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+El resultado emp\'irico es que, bajo este protocolo de medici\'on, PySpark ya
+es m\'as r\'apido que pandas en el tama\~no m\'as peque\~no probado
+(10\,000 filas): no se observa, dentro del rango medido, un punto de cruce
+donde pandas sea preferible. Esto \emph{no} significa que Spark no tenga
+overhead fijo de arranque --lo tiene, y es sustancial en un entorno real--
+sino que ese overhead queda expl\'icitamente fuera de la medici\'on por
+dise\~no del protocolo (Secci\'on~\ref{sec:procedimiento}): ``el arranque de
+la SparkSession no se cronometra''. Es una distinci\'on metodol\'ogica
+importante para no sobreinterpretar el resultado: lo que la Tabla~\ref{tab:umbral}
+mide es el \emph{tiempo de procesamiento puro} una vez que la sesi\'on ya
+est\'a activa, no la latencia total percibida por un analista que ejecuta un
+script desde cero. En un despliegue real de ACC, si cada reporte se ejecuta
+como un proceso Spark independiente que debe arrancar su propia sesi\'on
+(varios segundos de overhead fijo en un cl\'uster gestionado como EMR o
+Dataproc), el umbral de rentabilidad efectivo ser\'ia m\'as alto que lo que
+sugiere la Tabla~\ref{tab:umbral} tomada de forma aislada. La recomendaci\'on
+razonable para ACC es, por tanto, doble: (a) si los reportes se ejecutan en
+una sesi\'on Spark persistente (por ejemplo, un cl\'uster que atiende
+m\'ultiples consultas gerenciales durante el d\'ia), la migraci\'on a Spark
+se justifica ya desde vol\'umenes moderados, como sugiere esta tabla; (b) si
+cada reporte arranca su propia sesi\'on desde cero, conviene reservar Spark
+para los reportes sobre el hist\'orico completo (cientos de miles de tickets)
+y mantener pandas para consultas puntuales sobre subconjuntos peque\~nos,
+donde el overhead fijo de sesi\'on dominar\'ia el tiempo total.
+
 
 
 
