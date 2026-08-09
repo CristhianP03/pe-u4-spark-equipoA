@@ -1234,7 +1234,6 @@ sobre el mismo DataFrame base se beneficiar\'ia de exactamente esta ventaja
 etapa como un job separado con su propio costo de I/O.
 
 
-===========================================================================
 \section{Conclusiones Individuales}
 \label{sec:conclusiones}
 
@@ -1287,7 +1286,72 @@ de lo contrario, se estar\'ia optimizando la velocidad de un c\'alculo
 incorrecto. Mi aporte se concentr\'o en el an\'alisis de Amdahl/Gustafson, la
 verificaci\'on de equivalencia y el estudio del umbral de rentabilidad.
 
+\subsection*{Ernesto Gregory Luna Mora}
 
+Mi rol fue mantener el repositorio y la reproducibilidad del proyecto, y el
+aprendizaje m\'as concreto que me deja esta pr\'actica no vino del c\'odigo
+de Spark sino de algo mucho m\'as operativo: gestionar el versionado de
+archivos de resultados de varias decenas de megabytes. Al subir
+\texttt{t4\_derivada.csv} (37--39\,MB, la salida m\'as pesada del pipeline
+por tener 600\,000 filas completas) descubr\'i que el l\'imite de 25\,MB por
+archivo de la interfaz web de GitHub es distinto del l\'imite real de
+\texttt{git} por l\'inea de comandos (100\,MB); entender esa diferencia me
+ahorr\'o tener que fragmentar artificialmente un archivo de evidencia que en
+realidad no necesitaba fragmentarse, con tal de usar el m\'etodo de subida
+correcto en vez de forzar el archivo a caber en la herramienta equivocada.
+Ese mismo criterio de reproducibilidad --que cualquier persona pueda clonar
+el repositorio y reproducir exactamente los mismos resultados-- es el que
+aplicamos en todo el proyecto: el dataset se regenera bit a bit con una
+semilla fija, las figuras se regeneran con un script en vez de guardarse a
+mano, y las diez salidas del pipeline se versionan como evidencia directa de
+que la medici\'on ocurri\'o de verdad. Para un sistema real de ACC en
+producci\'on, este aprendizaje se traduce en que la infraestructura de datos
+--c\'omo se almacenan, versionan y regeneran los resultados intermedios de un
+pipeline-- es tan cr\'itica para la confiabilidad del sistema como la
+correcci\'on del c\'odigo de transformaci\'on en s\'i.
+
+\section*{Declaraci\'on de Uso de Inteligencia Artificial Generativa}
+\addcontentsline{toc}{section}{Declaraci\'on de Uso de Inteligencia Artificial Generativa}
+\label{sec:declaracion-ia}
+
+\textbf{Herramienta utilizada:} Claude (Anthropic), modelo Sonnet~5, a
+trav\'es de Claude Code (interfaz de l\'inea de comandos).
+
+\textbf{Prop\'osito del uso:} apoyo en la configuraci\'on y versionado del
+repositorio (comandos \texttt{git} para inicializar el repositorio local,
+conectarlo al remoto y subir archivos de resultados de gran tama\~no;
+diagn\'ostico y resoluci\'on del l\'imite de subida de 25\,MB de la interfaz
+web de GitHub frente al l\'imite de 100\,MB de \texttt{git} por l\'inea de
+comandos); y redacci\'on de un borrador inicial completo del informe LaTeX
+--estructura, fundamento te\'orico, integraci\'on de los resultados num\'ericos
+reales generados por el propio pipeline del equipo (tiempos, speedups,
+an\'alisis de Amdahl/Gustafson, tabla de equivalencia y umbral de
+rentabilidad, tomados directamente de \texttt{resultados/tiempos\_resumen.csv}
+y \texttt{tablas\_items\_4\_12\_13\_20\_23.txt})-- posteriormente revisado por
+el equipo.
+
+\textbf{Secciones asistidas por IA:} portada (redacci\'on de la
+justificaci\'on t\'ecnica), resumen, introducci\'on, las cuatro subsecciones
+del fundamento te\'orico (Secci\'on~\ref{sec:fundamento}), el procedimiento
+aplicado (Secci\'on~\ref{sec:procedimiento}), los resultados y su
+interpretaci\'on (Secci\'on~\ref{sec:resultados}), el an\'alisis cr\'itico con
+la sustituci\'on num\'erica de la fracci\'on serial
+(Secci\'on~\ref{sec:analisis}), las cuatro preguntas del Anexo A
+(Secci\'on~\ref{sec:preguntas}) y un primer borrador de las conclusiones
+individuales (Secci\'on~\ref{sec:conclusiones}), que cada integrante debe
+revisar, personalizar y validar como reflejo genuino de su propio aprendizaje
+antes de la entrega final. Los datos num\'ericos citados en todo el documento
+provienen \'integramente de archivos generados por la ejecuci\'on real del
+pipeline del equipo (\texttt{resultados/tiempos\_resumen.csv},
+\texttt{tablas\_items\_4\_12\_13\_20\_23.txt}, y la salida capturada del
+notebook ejecutado); ninguna cifra experimental fue generada o estimada por
+la IA.
+
+\newpage
+\bibliographystyle{IEEEtran}
+\bibliography{references_U4}
+
+\end{document}
 
 
 
