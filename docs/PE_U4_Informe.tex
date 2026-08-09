@@ -773,3 +773,74 @@ def t5_topn(df):
         .limit(10)
     )
 \end{lstlisting}
+
+\subsection{Verificaci\'on de equivalencia pandas $\leftrightarrow$ PySpark}
+\label{sec:equivalencia}
+
+Para cada una de las cinco transformaciones se verific\'o, sobre la
+ejecuci\'on real del pipeline, la cardinalidad de filas, la correspondencia
+de columnas y al menos un agregado de control (sumas, medias y claves de
+agrupaci\'on) entre el resultado en pandas y en PySpark. La
+Tabla~\ref{tab:equivalencia} resume el resultado: las cinco transformaciones
+son num\'ericamente equivalentes entre ambos motores.
+
+\begin{table}[htbp]
+\centering
+\caption{Verificaci\'on de equivalencia num\'erica pandas $\leftrightarrow$ PySpark.}
+\label{tab:equivalencia}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}lrrccccc@{}}
+\toprule
+\textbf{Transf.} & \textbf{Filas pandas} & \textbf{Filas Spark} & \textbf{Columnas} & \textbf{Cardinalidad} & \textbf{Sumas} & \textbf{Medias} & \textbf{Claves} \\
+\midrule
+T1 & 180\,003 & 180\,003 & S\'i & S\'i & S\'i & S\'i & S\'i \\
+T2 & 30       & 30       & S\'i & S\'i & S\'i & S\'i & S\'i \\
+T3 & 180\,003 & 180\,003 & S\'i & S\'i & S\'i & S\'i & S\'i \\
+T4 & 600\,000 & 600\,000 & S\'i & S\'i & S\'i & S\'i & S\'i \\
+T5 & 10       & 10       & S\'i & S\'i & S\'i & S\'i & S\'i \\
+\bottomrule
+\end{tabular}%
+}
+\end{table}
+
+\subsection{Versiones declaradas del entorno}
+\label{sec:versiones}
+
+La Tabla~\ref{tab:versiones} transcribe, sin modificaciones, la salida real
+de \texttt{python src/medicion.py -{}-modo versiones} obtenida durante la
+ejecuci\'on documentada en Google Colab (criterio 1.4, nivel 4).
+
+\begin{table}[htbp]
+\centering
+\caption{Versiones reales del entorno de ejecuci\'on.}
+\label{tab:versiones}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Componente} & \textbf{Versi\'on} \\
+\midrule
+Python & 3.12.13 \\
+Paquete PySpark & 3.5.3 \\
+Motor Spark & 3.5.3 \\
+pandas & 2.2.3 \\
+numpy & 2.5.1 \\
+matplotlib & 3.9.2 \\
+faker & 40.36.0 \\
+Plataforma & Linux-6.6.122+-x86\_64-with-glibc2.35 (Google Colab) \\
+Java & OpenJDK 17.0.19 \\
+Fecha de ejecuci\'on (UTC) & 2026-08-07T18:57:00+00:00 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+
+
+
+
+
+
+
+
+
+
+
+
