@@ -203,3 +203,158 @@ cr\'itico de la fracci\'on serial observada y el umbral de rentabilidad; la
 Secci\'on~\ref{sec:preguntas} responde las preguntas de an\'alisis del Anexo
 A; y el documento cierra con las conclusiones individuales del equipo y la
 declaraci\'on de uso de inteligencia artificial generativa.
+
+\section{Fundamento Te\'orico}
+\label{sec:fundamento}
+
+\subsection{Fundamentos de paralelismo y Ley de Amdahl}
+\label{sec:fundamento-amdahl}
+
+El paralelismo de c\'omputo se clasifica, de forma general, en dos
+estrategias complementarias. El \textbf{paralelismo de datos} consiste en
+dividir un mismo conjunto de datos en fragmentos independientes y aplicar
+\emph{la misma} operaci\'on a cada fragmento de forma simult\'anea en
+distintas unidades de procesamiento; es el modelo que sigue Apache Spark al
+particionar un DataFrame entre executors, donde cada partici\'on se procesa
+con id\'entica l\'ogica de transformaci\'on \cite{zaharia2012,chambers2018}.
+El \textbf{paralelismo de tareas}, en cambio, consiste en ejecutar
+simult\'aneamente operaciones \emph{distintas} entre s\'i, cada una
+potencialmente sobre datos diferentes, coordinadas para producir un resultado
+com\'un; es el modelo m\'as cercano a las fases Map y Reduce como unidades de
+trabajo diferenciadas dentro de un mismo job \cite{dean2008,white2015}. En el
+pipeline de este proyecto, T1--T5 se ejecutan como tareas independientes
+entre s\'i (paralelismo de tareas a nivel de pipeline), mientras que, dentro
+de cada transformaci\'on, el procesamiento de las 600\,000 filas se reparte
+por partici\'on entre executors (paralelismo de datos a nivel de
+transformaci\'on).
+
+\paragraph{Derivaci\'on de la Ley de Amdahl.}
+Sea $T$ el tiempo total de ejecuci\'on de un programa en una sola unidad de
+procesamiento, normalizado a $T=1$. Este tiempo se compone de dos fracciones
+complementarias: una fracci\'on serial $(1-p)$, correspondiente a las
+instrucciones que deben ejecutarse estrictamente en orden (por dependencias
+de datos, inicializaci\'on, o agregaci\'on final de resultados) y que ninguna
+cantidad de procesadores adicionales puede acelerar; y una fracci\'on
+paralelizable $p$, que s\'i puede repartirse entre $N$ unidades de
+procesamiento sin p\'erdida de eficiencia ideal. Bajo el supuesto de que la
+fracci\'on paralelizable se reparte de forma perfectamente uniforme entre las
+$N$ unidades, el tiempo que tarda esa porci\'on se reduce a $p/N$, mientras
+que el tiempo de la fracci\'on serial permanece constante en $(1-p)$, porque
+por definici\'on no se distribuye. El tiempo total con $N$ procesadores es
+entonces $(1-p)+p/N$, y el \emph{speedup} $S(N)$ --la raz\'on entre el tiempo
+original y el tiempo paralelizado-- resulta de dividir el tiempo original
+($T=1$) entre ese tiempo reducido, lo que da la ecuaci\'on~\eqref{eq:amdahl},
+conocida como la Ley de Amdahl \cite{amdahl1967,gustafson1988}:
+\begin{equation}
+S(N) = \frac{1}{(1-p) + \dfrac{p}{N}}
+\label{eq:amdahl}
+\end{equation}
+
+\paragraph{Speedup m\'aximo te\'orico.}
+Cuando $N$ crece sin l\'imite, el t\'ermino $p/N$ tiende a 0 y el speedup se
+estabiliza en el valor dado por la ecuaci\'on~\eqref{eq:smax}: el speedup
+m\'aximo te\'orico depende exclusivamente de la fracci\'on serial, no del
+n\'umero de procesadores disponibles.
+\begin{equation}
+S_{\max} = \lim_{N\to\infty} S(N) = \frac{1}{1-p}
+\label{eq:smax}
+\end{equation}
+La implicaci\'on pr\'actica es contundente: si el 10\,\% de un programa es
+estrictamente serial ($p=0.9$), el speedup m\'aximo posible es
+$1/(1-0.9)=1/0.1=10$, sin importar si se usan 100 o 10\,000 procesadores
+--agregar m\'as recursos de c\'omputo m\'as all\'a de cierto punto deja de
+tener retorno \cite{amdahl1967,gustafson1988}.
+
+\paragraph{Eficiencia del paralelismo.}
+La eficiencia, definida en la ecuaci\'on~\eqref{eq:eficiencia}, mide qu\'e
+fracci\'on del beneficio ideal (speedup lineal, $E=1$) se aprovecha realmente
+con cada unidad de procesamiento adicional.
+\begin{equation}
+E(N) = \frac{S(N)}{N}
+\label{eq:eficiencia}
+\end{equation}
+Un speedup absoluto alto obtenido con un n\'umero grande de procesadores
+puede, pese a todo, tener una eficiencia baja: es la se\~nal cuantitativa de
+que se est\'a entrando en la zona de rendimientos decrecientes que predice la
+propia Ley de Amdahl \cite{amdahl1967,chambers2018}.
+
+\paragraph{Ley de Gustafson-Barsis.}
+La Ley de Amdahl asume un supuesto que rara vez se sostiene en sistemas de
+Big Data: que el tama\~no del problema es fijo y lo \'unico que cambia es el
+n\'umero de procesadores disponibles para resolverlo m\'as r\'apido.
+Gustafson \cite{gustafson1988} invierte ese supuesto en 1988: en la
+pr\'actica, cuando una organizaci\'on agrega m\'as capacidad de c\'omputo no
+es porque quiera resolver exactamente el mismo problema en menos tiempo,
+sino porque quiere procesar m\'as datos en el mismo tiempo disponible. Bajo
+ese supuesto de carga de trabajo escalable, el speedup observado se modela
+con la ecuaci\'on~\eqref{eq:gustafson}, conocida como Ley de
+Gustafson-Barsis:
+\begin{equation}
+S_G(N) = N - (1-p)(N-1)
+\label{eq:gustafson}
+\end{equation}
+Esta distinci\'on es particularmente relevante para sistemas como Apache
+Spark: cuando un equipo de datos escala un cl\'uster, t\'ipicamente no es
+para terminar el mismo reporte m\'as r\'apido, sino para poder procesar, en
+la misma ventana de tiempo, un volumen de tickets, transacciones o eventos
+que ha crecido \cite{gustafson1988,zaharia2016}. Por esta raz\'on, las leyes
+de Amdahl y Gustafson-Barsis no son contradictorias sino complementarias: la
+primera acota el beneficio de paralelizar un problema de tama\~no fijo, y la
+segunda describe el escenario --mucho m\'as com\'un en la pr\'actica de Big
+Data-- de un problema cuyo tama\~no crece junto con los recursos.
+
+\begin{figure}[htbp]
+\centering
+\includegraphics[width=0.8\textwidth]{../resultados/figuras/fig0_amdahl_teorico.png}
+\caption{Curvas te\'oricas de speedup $S(N)$ seg\'un la ecuaci\'on~\eqref{eq:amdahl} para cuatro valores de la fracci\'on paralelizable ($p=0.50,\,0.75,\,0.90,\,0.95$).}
+\label{fig:teorico-amdahl}
+\end{figure}
+
+La Figura~\ref{fig:teorico-amdahl} ilustra las curvas de speedup predichas
+por la ecuaci\'on~\eqref{eq:amdahl}, mostrando c\'omo el techo de
+aceleraci\'on se desplaza dr\'asticamente seg\'un qu\'e tan paralelizable
+sea, en t\'erminos algor\'itmicos, el problema: incluso con $p=0.95$ (un
+programa con solo 5\,\% de c\'odigo estrictamente serial), el speedup se
+satura por debajo de 20$\times$, mientras que con $p=0.50$ el techo es de
+apenas 2$\times$.
+
+\paragraph{Fracci\'on serial observada (forma inversa).}
+Despejando $p$ de la ecuaci\'on~\eqref{eq:amdahl} en funci\'on de un speedup
+y un $N$ observados experimentalmente, se obtiene la forma inversa de la
+ecuaci\'on~\eqref{eq:fobs}, que permite estimar --a partir de mediciones
+reales, no de una declaraci\'on de dise\~no-- qu\'e fracci\'on del tiempo
+total se comport\'o como si fuera serial en una ejecuci\'on concreta:
+\begin{equation}
+f_{\mathrm{obs}}(N) = \frac{\dfrac{1}{S(N)} - \dfrac{1}{N}}{1 - \dfrac{1}{N}}
+\label{eq:fobs}
+\end{equation}
+Es indispensable, sin embargo, no confundir esta magnitud despejada con la
+fracci\'on serial algor\'itmica del programa: $f_{\mathrm{obs}}(N)$ no
+distingue entre instrucciones que son intr\'insecamente secuenciales (por
+dise\~no del algoritmo) y tiempo perdido por sobrecarga de planificaci\'on de
+tareas, serializaci\'on de datos entre procesos o --de forma especialmente
+relevante en Spark-- el \emph{shuffle} necesario para redistribuir datos
+entre executors en operaciones como el join o el \texttt{groupBy}. Confundir
+la fracci\'on serial observada con la fracci\'on serial algor\'itmica es un
+error conceptual expl\'icitamente penalizado en el criterio 2.2 de esta
+r\'ubrica, y se retoma de forma aplicada, con los datos reales del
+experimento, en la Secci\'on~\ref{sec:analisis}.
+
+\paragraph{Conexi\'on con el dominio ACC.}
+En el pipeline de tickets de soporte de ACC, esta distinci\'on tiene una
+traducci\'on directa: T1 (filtrado) es una operaci\'on de paralelismo de
+datos casi puro --cada fila se eval\'ua de forma completamente independiente
+contra la m\'ascara de condiciones, sin que el resultado de un ticket
+dependa del de otro-- por lo que se espera que su fracci\'on serial observada
+sea baja. T3 (join), en cambio, requiere redistribuir f\'isicamente las
+filas de \texttt{tickets} y \texttt{agentes} entre executors seg\'un la
+clave \texttt{agente\_id} antes de poder emparejarlas (\emph{shuffle}), una
+operaci\'on de comunicaci\'on entre nodos que Amdahl, en su formulaci\'on
+cl\'asica de 1967, no distingue de la fracci\'on serial pura del algoritmo.
+Por esta raz\'on, T3 es la transformaci\'on elegida en este experimento para
+el escalado con $N=1,2,4$ executors: es la que mejor expone, con datos
+reales, la diferencia entre paralelismo te\'orico y paralelismo efectivo.
+
+
+
+
