@@ -1,0 +1,205 @@
+\documentclass[11pt,a4paper]{article}
+
+% Preambulo
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish]{babel}
+\usepackage{csquotes}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{siunitx}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{xcolor}
+\usepackage{listings}
+\usepackage{caption}
+\usepackage{longtable}
+\usepackage{array}
+
+\renewcommand{\refname}{Bibliograf\'ia}
+
+\usepackage{hyperref}
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!50!black,
+  citecolor=blue!50!black,
+  urlcolor=blue!50!black,
+  pdftitle={PE-U4: pandas vs PySpark y comprobacion de la Ley de Amdahl (ACC)},
+  pdfauthor={Cristhian Pacheco, Robinson Cando, Ernesto Luna}
+}
+
+% --- Estilo de listados de codigo (Python) ---
+\lstdefinestyle{pythonstyle}{
+  language=Python,
+  basicstyle=\ttfamily\footnotesize,
+  keywordstyle=\color{blue!60!black}\bfseries,
+  commentstyle=\color{gray!70!black}\itshape,
+  stringstyle=\color{teal!70!black},
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+  stepnumber=1,
+  numbersep=6pt,
+  breaklines=true,
+  breakatwhitespace=false,
+  showstringspaces=false,
+  frame=single,
+  framerule=0.3pt,
+  captionpos=b,
+  tabsize=4,
+}
+\lstset{style=pythonstyle}
+
+% --- Comando para marcar campos institucionales que el equipo debe completar ---
+\newcommand{\completar}[1]{\colorbox{yellow!60}{\textbf{[COMPLETAR: #1]}}}
+
+\title{PE-U4: pandas vs PySpark y comprobacion experimental de la Ley de Amdahl}
+\author{}
+\date{}
+
+\begin{document}
+
+% PORTADA
+
+\begin{titlepage}
+\centering
+{\large UNIVERSIDAD T\'ECNICA ESTATAL DE QUEVEDO\par}
+{\large Facultad de Ciencias de la Computaci\'on\par}
+{\large Carrera de Ingenier\'ia de Software\par}
+
+\vspace{1.2cm}
+{\Large\bfseries PE-U4: Procesamiento Distribuido con Apache Spark\\[2pt]
+Comprobaci\'on Experimental de la Ley de Amdahl\\[2pt]
+sobre un Pipeline de Tickets de Soporte T\'ecnico ISP (ACC)\par}
+
+\vspace{0.8cm}
+\begin{tabular}{@{}ll@{}}
+\textbf{C\'odigo de actividad:} & GA-SUM-05 / PE-U4 \\
+\textbf{Asignatura:} & Aplicaciones Distribuidas (ISR-701) \\
+\textbf{Unidad:} & Unidad 4 \\
+\textbf{Nivel / Paralelo:} & S\'eptimo de Ingenier\'ia de Software ``A'' \\
+\textbf{Docente:} & Gleiston C. Guerrero-Ulloa, M.Sc. \\
+\textbf{Per\'iodo acad\'emico:} & 2026--2027 PPA \\
+\end{tabular}
+
+\vspace{0.8cm}
+\textbf{PFC de referencia:} ACC --- Sistema de Gesti\'on de Soporte T\'ecnico ISP
+
+\vspace{0.6cm}
+{\large\textbf{Integrantes}\par}
+\vspace{0.2cm}
+\resizebox{\textwidth}{!}{%
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Nombre} & \textbf{PFC de origen} & \textbf{Rol asumido en esta pr\'actica} \\
+\midrule
+Cristhian Daniel Pacheco C\'ardenas & ACC & Implementaci\'on PySpark, protocolo de medici\'on y escalado de T3 \\
+Robinson Rodrigo Cando Moreno & ACC & An\'alisis de Amdahl, equivalencia y umbral de rentabilidad \\
+Ernesto Gregory Luna Mora & BCEL & Repositorio, reproducibilidad, figuras y verificaci\'on final \\
+\bottomrule
+\end{tabular}%
+}
+
+\vspace{0.8cm}
+\begin{minipage}{0.92\textwidth}
+\textbf{Justificaci\'on t\'ecnica.} El dominio ACC (Sistema de Gesti\'on de Soporte
+T\'ecnico ISP) opera sobre un flujo continuo de tickets de soporte --cortes de
+servicio, reclamos de velocidad, fallas de equipo, solicitudes de instalaci\'on
+y consultas de facturaci\'on-- generado las 24 horas por una base de clientes
+activa. Incluso un proveedor de tama\~no medio, con algunos miles de clientes,
+acumula en pocos meses de operaci\'on cientos de miles de registros de
+tickets, cada uno con m\'ultiples atributos temporales, categ\'oricos y de
+estado. A esa escala, el an\'alisis explorat\'orio, los reportes gerenciales
+recurrentes y las agregaciones por zona o categor\'ia dejan de ser viables con
+herramientas de una sola m\'aquina: el tiempo de c\'omputo crece de forma que
+compromete la oportunidad de la decisi\'on operativa. Este trabajo usa
+exactamente ese volumen (600\,000 tickets sint\'eticos, semilla fija) para
+comprobar, con datos propios, si un motor distribuido como Apache Spark ofrece
+una ventaja medible frente a pandas. La decisi\'on de negocio concreta que se
+apoyar\'ia en este pipeline es identificar qu\'e categor\'ias de incidencia
+concentran m\'as tickets cr\'iticos por zona operativa, para decidir d\'onde
+reforzar personal t\'ecnico de campo o priorizar mantenimiento de
+infraestructura de red --una decisi\'on operativa medible, no una mejora
+gen\'erica del servicio.
+\end{minipage}
+
+\vfill
+{\small Repositorio: \url{https://github.com/CristhianP03/pe-u4-spark-equipoA}\par}
+\end{titlepage}
+
+\tableofcontents
+\newpage
+
+\section*{Resumen}
+\addcontentsline{toc}{section}{Resumen}
+
+La Ley de Amdahl (1967) establece el l\'imite te\'orico de aceleraci\'on que
+puede obtenerse al paralelizar un programa cuya fracci\'on serial es fija, y
+sigue siendo el marco de referencia para evaluar si motores modernos de
+procesamiento distribuido, como Apache Spark, cumplen su promesa de
+escalabilidad sobre cargas de trabajo reales. Este informe comprueba
+experimentalmente dicha ley aplicando un pipeline de cinco transformaciones
+(filtrado, agrupaci\'on, join, generaci\'on de variables derivadas y top-N)
+sobre un dataset sint\'etico determinista de 600\,000 tickets de soporte
+t\'ecnico ISP del dominio ACC, implementado en paralelo en pandas y en
+PySpark~3.5.3, bajo un protocolo de medici\'on riguroso (calentamiento
+descartado, cinco repeticiones cronometradas con \texttt{time.perf\_counter},
+estad\'istico mediana) y con escalado de la transformaci\'on de join (T3) en
+$N=1,2,4$ executors. Los resultados muestran una aceleraci\'on de PySpark
+frente a pandas de entre 1.43$\times$ y 2.56$\times$ seg\'un la
+transformaci\'on, con equivalencia num\'erica exacta entre ambos motores en
+las cinco transformaciones (cardinalidad, columnas, sumas, medias y claves de
+agrupaci\'on). El an\'alisis de Amdahl sobre T3 estima una fracci\'on
+paralelizable observada de apenas 17.3\,\%, lo que fija un techo te\'orico de
+aceleraci\'on de 1.21$\times$ y explica por qu\'e el rendimiento se satura ya
+con $N=2$ executors --un hallazgo consistente con el \emph{shuffle} del join
+como cuello de botella dominante, m\'as que con una limitaci\'on
+algor\'itmica intr\'inseca. Estos resultados tienen una implicaci\'on directa
+para ACC: la migraci\'on a Spark se justifica por el volumen de datos que hay
+que procesar, no por el paralelismo bruto de hardware adicional.
+
+\newpage
+
+\section{Introducci\'on}
+
+El crecimiento sostenido del volumen de datos operativos en sistemas
+empresariales ha convertido el procesamiento distribuido en una necesidad
+pr\'actica m\'as que en una opci\'on de dise\~no: cuando un conjunto de datos
+supera lo que una sola m\'aquina puede procesar en un tiempo aceptable, la
+\'unica v\'ia para mantener la oportunidad de las decisiones basadas en esos
+datos es repartir el c\'omputo entre varias unidades de procesamiento
+\cite{dean2008,zaharia2016}.
+
+Sin embargo, repartir el trabajo entre m\'as procesadores no garantiza una
+aceleraci\'on proporcional. La Ley de Amdahl, formulada en 1967, es el marco
+cl\'asico que cuantifica ese l\'imite: toda tarea computacional tiene, en la
+pr\'actica, una fracci\'on que no puede paralelizarse --ya sea por
+dependencias de datos, coordinaci\'on entre nodos o simple l\'ogica
+secuencial-- y esa fracci\'on fija un techo de aceleraci\'on que ning\'un
+n\'umero adicional de procesadores puede superar. M\'as de cinco d\'ecadas
+despu\'es de su formulaci\'on, la vigencia de esta ley sigue siendo objeto de
+verificaci\'on emp\'irica cuando se aplica a motores modernos de
+procesamiento distribuido como Apache Spark, cuyo modelo de ejecuci\'on en
+memoria y evaluaci\'on perezosa difiere sustancialmente de los sistemas para
+los que Amdahl escribi\'o originalmente su argumento.
+
+El objetivo de este trabajo es comprobar experimentalmente la Ley de Amdahl
+--y su complemento, la Ley de Gustafson-Barsis-- aplicando un pipeline real
+de cinco transformaciones de datos sobre un dataset sint\'etico de 600\,000
+tickets de soporte t\'ecnico ISP, correspondiente al dominio ACC (Sistema de
+Gesti\'on de Soporte T\'ecnico ISP), implementado en paralelo en pandas
+(l\'inea base de una sola m\'aquina) y en PySpark (motor distribuido), con
+escalado controlado de una de las transformaciones en $N=1,2,4$ executors.
+
+El documento se organiza de la siguiente manera: la Secci\'on~\ref{sec:fundamento}
+desarrolla el fundamento te\'orico del paralelismo, MapReduce/Hadoop, la
+arquitectura de Spark y los modelos de computaci\'on en la nube; la
+Secci\'on~\ref{sec:procedimiento} documenta el procedimiento aplicado
+(dataset, configuraci\'on de Spark, implementaci\'on y verificaci\'on de
+equivalencia); la Secci\'on~\ref{sec:resultados} presenta los resultados
+cuantitativos; la Secci\'on~\ref{sec:analisis} desarrolla el an\'alisis
+cr\'itico de la fracci\'on serial observada y el umbral de rentabilidad; la
+Secci\'on~\ref{sec:preguntas} responde las preguntas de an\'alisis del Anexo
+A; y el documento cierra con las conclusiones individuales del equipo y la
+declaraci\'on de uso de inteligencia artificial generativa.
